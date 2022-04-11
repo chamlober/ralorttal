@@ -32,11 +32,11 @@ pub type Accounts = std::collections::HashMap<u16, Account>;
 
 #[derive(Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Account {
-    client: u16,
-    available: Decimal,
-    held: Decimal,
-    total: Decimal,
-    locked: bool,
+    pub client: u16,
+    pub available: Decimal,
+    pub held: Decimal,
+    pub total: Decimal,
+    pub locked: bool,
 }
 
 fn process_transaction(
@@ -56,19 +56,27 @@ fn process_transaction(
     match transaction.tx_type {
         TransactionType::Chargeback => {
             if let Some(deposit) = deposits.get_mut(&transaction.tx) {
-                if deposit.disputed {
+                if deposit.client == account.client
+                    && deposit.disputed
+                    && account.held >= deposit.amount
+                {
                     account.held -= deposit.amount;
                     account.locked = true;
                 }
             }
         }
         TransactionType::Deposit => {
-            account.available += transaction.amount;
-            deposits.insert(transaction.tx, transaction);
+            if !deposits.contains_key(&transaction.tx) && transaction.amount > 0.into() {
+                account.available += transaction.amount;
+                deposits.insert(transaction.tx, transaction);
+            }
         }
         TransactionType::Dispute => {
             if let Some(deposit) = deposits.get_mut(&transaction.tx) {
-                if !deposit.disputed {
+                if deposit.client == account.client
+                    && !deposit.disputed
+                    && account.available >= deposit.amount
+                {
                     account.available -= deposit.amount;
                     account.held += deposit.amount;
                     deposit.disputed = true;
@@ -77,7 +85,10 @@ fn process_transaction(
         }
         TransactionType::Resolve => {
             if let Some(deposit) = deposits.get_mut(&transaction.tx) {
-                if deposit.disputed {
+                if deposit.client == account.client
+                    && deposit.disputed
+                    && account.held >= deposit.amount
+                {
                     account.available += deposit.amount;
                     account.held -= deposit.amount;
                     deposit.disputed = false
@@ -85,7 +96,7 @@ fn process_transaction(
             }
         }
         TransactionType::Withdrawal => {
-            if account.available >= transaction.amount {
+            if account.available >= transaction.amount && transaction.amount > 0.into() {
                 account.available -= transaction.amount;
             }
         }
